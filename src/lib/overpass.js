@@ -1,20 +1,33 @@
 /**
  * Geocoding (Nominatim) + restaurant POIs (Overpass).
  * Nominatim: max ~1 req/s — do not hammer from the client in production without caching.
+ *
+ * Overpass: the main public instance often returns 502/504 when busy. We try multiple
+ * mirrors and retry transient failures.
  */
 
 const USER_AGENT =
   'FoodTinder/1.0 (local dev; https://github.com/; contact: not-configured)'
 
-/** Dev uses Vite proxy to avoid CORS; prod hits APIs directly. */
+/** Dev: Vite proxies each path to a different Overpass mirror (avoids browser CORS). */
+function overpassInterpreterUrls() {
+  if (import.meta.env.DEV) {
+    return ['/api/overpass', '/api/overpass-kumi', '/api/overpass-fr']
+  }
+  return [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.openstreetmap.fr/api/interpreter',
+  ]
+}
+
+/** Nominatim: dev proxy vs prod direct. */
 function nominatimBase() {
   return import.meta.env.DEV ? '/api/nominatim' : 'https://nominatim.openstreetmap.org'
 }
 
-function overpassInterpreterUrl() {
-  return import.meta.env.DEV
-    ? '/api/overpass'
-    : 'https://overpass-api.de/api/interpreter'
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /**
@@ -72,6 +85,95 @@ export async function geocodeCity(query) {
   }
 }
 
+function mapOverpassElements(elements) {
+  return elements
+    .filter((el) => el.type === 'node' && el.tags?.name && el.lat != null && el.lon != null)
+    .map((el) => ({
+      osm_id: String(el.id),
+      name: el.tags.name,
+      cuisine: el.tags.cuisine || 'restaurant',
+      address: formatAddress(el.tags),
+      lat: el.lat,
+      lng: el.lon,
+    }))
+}
+
+function isRetryableOverpassError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.name === 'AbortError') return true
+  if (err instanceof TypeError && err.message === 'Failed to fetch') return true
+  const s = err.overpassStatus
+  return s === 429 || s === 500 || s === 502 || s === 503 || s === 504
+}
+
+/**
+ * POST one Overpass query to a single interpreter URL (one attempt).
+ * @param {string} interpreterUrl
+ * @param {string} body
+ */
+async function postOverpassOnce(interpreterUrl, body) {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 28000)
+
+  try {
+    const res = await fetch(interpreterUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=UTF-8',
+        'User-Agent': USER_AGENT,
+      },
+      body,
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      const err = new Error(
+        `Overpass returned ${res.status}. The public server may be busy — try again.`,
+      )
+      err.overpassStatus = res.status
+      throw err
+    }
+
+    let data
+    try {
+      data = await res.json()
+    } catch {
+      throw new Error('Overpass returned invalid data. Try again in a moment.')
+    }
+
+    const elements = Array.isArray(data.elements) ? data.elements : []
+    return mapOverpassElements(elements)
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+/**
+ * Try mirrors + short retries for transient overload (504, etc.).
+ */
+async function postOverpassWithFallback(body) {
+  const urls = overpassInterpreterUrls()
+
+  for (const url of urls) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await postOverpassOnce(url, body)
+      } catch (err) {
+        if (!isRetryableOverpassError(err)) {
+          throw err
+        }
+        if (attempt === 0) {
+          await sleep(1400)
+        }
+      }
+    }
+  }
+
+  throw new Error(
+    'Restaurant lookup could not finish — public map servers are overloaded right now. Wait a minute and try again.',
+  )
+}
+
 /**
  * @param {number} lat
  * @param {number} lng
@@ -86,7 +188,7 @@ export async function fetchRestaurants(lat, lng, cuisine = '', radius = 2000) {
     : ''
 
   const query = `
-    [out:json][timeout:25];
+    [out:json][timeout:20];
     (
       node["amenity"="restaurant"]${cuisineFilter}(around:${radius},${lat},${lng});
       node["amenity"="cafe"]${cuisineFilter}(around:${radius},${lat},${lng});
@@ -95,55 +197,13 @@ export async function fetchRestaurants(lat, lng, cuisine = '', radius = 2000) {
     out body 30;
   `
 
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 20000)
-
   try {
-    const res = await fetch(overpassInterpreterUrl(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=UTF-8',
-        'User-Agent': USER_AGENT,
-      },
-      body: query.trim(),
-      signal: controller.signal,
-    })
-
-    if (!res.ok) {
-      throw new Error(
-        `Overpass returned ${res.status}. The public server may be busy — try again.`,
-      )
-    }
-
-    let data
-    try {
-      data = await res.json()
-    } catch {
-      throw new Error('Overpass returned invalid data. Try again in a moment.')
-    }
-
-    const elements = Array.isArray(data.elements) ? data.elements : []
-
-    return elements
-      .filter((el) => el.type === 'node' && el.tags?.name && el.lat != null && el.lon != null)
-      .map((el) => ({
-        osm_id: String(el.id),
-        name: el.tags.name,
-        cuisine: el.tags.cuisine || 'restaurant',
-        address: formatAddress(el.tags),
-        lat: el.lat,
-        lng: el.lon,
-      }))
+    return await postOverpassWithFallback(query.trim())
   } catch (err) {
-    if (err?.name === 'AbortError') {
-      throw new Error('Overpass timed out. Try a smaller city or try again later.')
-    }
     if (err instanceof TypeError && err.message === 'Failed to fetch') {
       throw new Error('Could not reach Overpass. Check your connection and try again.')
     }
     throw err
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
 

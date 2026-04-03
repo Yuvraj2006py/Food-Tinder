@@ -17,6 +17,16 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/overpass/, '/api/interpreter'),
       },
+      '/api/overpass-kumi': {
+        target: 'https://overpass.kumi.systems',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/overpass-kumi/, '/api/interpreter'),
+      },
+      '/api/overpass-fr': {
+        target: 'https://overpass.openstreetmap.fr',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/overpass-fr/, '/api/interpreter'),
+      },
       '/api/nominatim': {
         target: 'https://nominatim.openstreetmap.org',
         changeOrigin: true,
