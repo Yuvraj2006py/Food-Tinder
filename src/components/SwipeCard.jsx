@@ -99,7 +99,7 @@ export function SwipeCard({ item, onCommit, stackPosition }) {
 
         <div className="relative flex h-full flex-col">
           <p className="font-[family-name:var(--font-card-meta)] text-[11px] font-medium uppercase tracking-[0.28em] text-amber-200/75">
-            Tonight
+            How about
           </p>
           <h2 className="font-[family-name:var(--font-card-display)] mt-3 text-[1.65rem] leading-tight tracking-tight text-white sm:text-[1.85rem]">
             {item.name}

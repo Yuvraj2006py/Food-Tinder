@@ -15,9 +15,9 @@ export function CardStack({ items, onSwipe }) {
 
   if (!items.length) {
     return (
-      <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 px-4 py-10 text-center">
-        <p className="text-sm text-slate-300">Nothing left to swipe here.</p>
-        <p className="mt-2 text-xs text-slate-500">Try a larger city or different cuisine when you start your next room.</p>
+      <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+        <p className="font-[family-name:var(--font-card-display)] text-xl text-white">No restaurants here</p>
+        <p className="mt-2 max-w-xs text-sm text-slate-400">Try a bigger city or different cuisine in your next room.</p>
       </div>
     )
   }
@@ -34,7 +34,7 @@ export function CardStack({ items, onSwipe }) {
   const finished = currentIndex >= items.length
 
   return (
-    <div className="w-full">
+    <div className="flex w-full flex-1 flex-col">
       <div className="relative mx-auto h-[min(420px,72dvh)] w-full max-w-md">
         {!finished ? (
           <>
@@ -67,22 +67,31 @@ export function CardStack({ items, onSwipe }) {
           <MotionDiv
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex h-full min-h-[320px] flex-col items-center justify-center rounded-2xl border border-slate-700/60 bg-slate-900/50 px-6 text-center"
+            className="flex h-full min-h-[320px] flex-col items-center justify-center rounded-3xl border border-slate-700/40 bg-slate-900/40 px-8 text-center"
           >
+            <span className="mb-4 text-4xl">&#x2728;</span>
             <p className="font-[family-name:var(--font-card-display)] text-xl text-white">
-              You’re through the stack
+              All done!
             </p>
-            <p className="mt-2 max-w-xs text-sm text-slate-400">
-              All caught up — open a new room for more places.
+            <p className="mt-2 max-w-xs text-sm leading-relaxed text-slate-400">
+              {"You've swiped through every place. Check your matches or start a new room."}
             </p>
           </MotionDiv>
         )}
       </div>
 
       {!finished && (
-        <p className="mt-4 text-center text-xs text-slate-500">
-          {items.length - currentIndex} left · drag or use buttons
-        </p>
+        <div className="mt-4 flex items-center justify-center gap-2">
+          <div className="h-1 w-16 overflow-hidden rounded-full bg-slate-800">
+            <div
+              className="h-full rounded-full bg-amber-500/60 transition-all duration-300"
+              style={{ width: `${((currentIndex) / items.length) * 100}%` }}
+            />
+          </div>
+          <p className="text-xs tabular-nums text-slate-500">
+            {currentIndex + 1} / {items.length}
+          </p>
+        </div>
       )}
     </div>
   )

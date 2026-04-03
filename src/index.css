@@ -5,7 +5,30 @@
   --font-card-meta: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
 }
 
+*,
+*::before,
+*::after {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   margin: 0;
   min-height: 100dvh;
+  font-family: var(--font-card-meta);
+  background: #020617;
+  color: #e2e8f0;
+}
+
+::selection {
+  background: rgba(245, 158, 11, 0.25);
+  color: white;
+}
+
+input::placeholder {
+  opacity: 0.5;
 }

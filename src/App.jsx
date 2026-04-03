@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { supabase } from './lib/supabase.js'
+import { useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useSession } from './hooks/useSession.js'
 import { useRestaurants } from './hooks/useRestaurants.js'
 import { useVotes } from './hooks/useVotes.js'
@@ -13,13 +12,9 @@ import { Spinner } from './components/Spinner.jsx'
 
 const MotionDiv = motion.div
 
-function App() {
-  const [dbStatus, setDbStatus] = useState({
-    state: 'loading',
-    message: '',
-    sessionCount: null,
-  })
+const pageTransition = { duration: 0.32, ease: [0.22, 1, 0.36, 1] }
 
+function App() {
   const {
     phase,
     session,
@@ -27,7 +22,6 @@ function App() {
     error,
     createSession,
     joinSession,
-    rehydrate,
     leaveSession,
     clearError,
   } = useSession()
@@ -53,38 +47,6 @@ function App() {
   const [joinCode, setJoinCode] = useState('')
   const [guestName, setGuestName] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function probeSessions() {
-      const { error: supaError, count } = await supabase
-        .from('sessions')
-        .select('*', { count: 'exact', head: true })
-
-      if (cancelled) return
-
-      if (supaError) {
-        setDbStatus({
-          state: 'error',
-          message: supaError.message,
-          sessionCount: null,
-        })
-        return
-      }
-
-      setDbStatus({
-        state: 'ok',
-        message: 'Can read public.sessions with the anon key (RLS allows it).',
-        sessionCount: count ?? 0,
-      })
-    }
-
-    probeSessions()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   async function handleCreate(e) {
     e.preventDefault()
     if (phase === 'creating' || phase === 'joining') return
@@ -100,132 +62,136 @@ function App() {
   }
 
   const showLobby = phase === 'idle'
-  const wideLayout =
-    session && (phase === 'waiting_host' || phase === 'active')
+  const inRoom = session && (phase === 'waiting_host' || phase === 'active')
+
+  const allErrors = [error, deckError && session ? deckError : null, votesError && session ? votesError : null].filter(Boolean)
 
   return (
-    <div className="min-h-dvh bg-slate-950 px-4 py-10 text-slate-200 sm:px-6">
+    <div className="flex min-h-dvh flex-col bg-slate-950 text-slate-200">
       <MatchModal restaurant={matchedRestaurant} onDismiss={dismissMatch} />
-      <main className={`mx-auto ${wideLayout ? 'max-w-xl' : 'max-w-lg'}`}>
-        <MotionDiv
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
-          className="space-y-6"
-        >
-          <header className="text-center">
-            <p className="text-sm font-medium uppercase tracking-widest text-amber-400/90">Decide together</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-              Food Tinder
-            </h1>
-            <p className="mt-2 text-sm text-slate-400">
-              Create a room, share the code, swipe until you match on a place to try.
-            </p>
-          </header>
 
-          <div
-            className={`rounded-lg border px-4 py-3 text-left text-sm ${
-              dbStatus.state === 'loading'
-                ? 'border-slate-600 bg-slate-900/80 text-slate-300'
-                : dbStatus.state === 'ok'
-                  ? 'border-emerald-700/60 bg-emerald-950/40 text-emerald-100/95'
-                  : 'border-red-800/70 bg-red-950/40 text-red-100/95'
-            }`}
-          >
-            {dbStatus.state === 'loading' && (
-              <div className="flex items-center gap-2">
-                <Spinner size="sm" label="Checking database connection" />
-                <span>Checking database…</span>
-              </div>
-            )}
-            {dbStatus.state === 'ok' && (
-              <>
-                <p className="font-medium text-emerald-200">Supabase connected</p>
-                <p className="mt-2 font-mono text-xs text-emerald-200/80">
-                  sessions in DB: {dbStatus.sessionCount}
-                </p>
-              </>
-            )}
-            {dbStatus.state === 'error' && (
-              <>
-                <p className="font-medium text-red-200">Database check failed</p>
-                <p className="mt-1 text-red-100/85">{dbStatus.message}</p>
-              </>
-            )}
-          </div>
-
-          {error && (
-            <div className="rounded-lg border border-red-800/70 bg-red-950/40 px-4 py-3 text-left text-sm text-red-100/95">
-              {error}
-            </div>
-          )}
-
-          {deckError && session && (
-            <div className="rounded-lg border border-red-800/70 bg-red-950/40 px-4 py-3 text-left text-sm text-red-100/95">
-              {deckError}
-            </div>
-          )}
-
-          {votesError && session && (
-            <div className="rounded-lg border border-red-800/70 bg-red-950/40 px-4 py-3 text-left text-sm text-red-100/95">
-              {votesError}
-            </div>
-          )}
-
+      <main className={`mx-auto w-full flex-1 px-4 sm:px-6 ${inRoom ? 'max-w-xl' : 'max-w-md'}`}>
+        <AnimatePresence mode="wait">
           {phase === 'loading' && !session && (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-slate-800/80 bg-slate-900/40 py-10">
-              <Spinner size="md" label="Restoring your room" />
-              <p className="text-sm text-slate-400">Restoring your room…</p>
-            </div>
-          )}
-
-          {phase === 'waiting_host' && session && (
-            <WaitingRoom
-              session={session}
-              deckLoading={deckLoading}
-              deckLength={deck.length}
-              onCheckPartner={() => {
-                clearError()
-                rehydrate()
-              }}
-              onLeave={leaveSession}
-            />
-          )}
-
-          {phase === 'active' && session && (
-            <SwipeSessionPanel
-              session={session}
-              userSlot={userSlot}
-              deck={deck}
-              votes={votes}
-              deckLoading={deckLoading}
-              votesLoading={votesLoading}
-              onLeave={leaveSession}
-              onSwipe={async (vote, item) => {
-                await castVote(item.id, vote)
-              }}
-            />
+            <MotionDiv
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={pageTransition}
+              className="flex min-h-dvh flex-col items-center justify-center gap-4"
+            >
+              <Spinner size="lg" label="Loading" />
+              <p className="text-sm text-slate-400">One sec…</p>
+            </MotionDiv>
           )}
 
           {showLobby && (
-            <SetupScreen
-              hostName={hostName}
-              onHostNameChange={setHostName}
-              city={city}
-              onCityChange={setCity}
-              cuisine={cuisine}
-              onCuisineChange={setCuisine}
-              joinCode={joinCode}
-              onJoinCodeChange={setJoinCode}
-              guestName={guestName}
-              onGuestNameChange={setGuestName}
-              onCreate={handleCreate}
-              onJoin={handleJoin}
-              creating={phase === 'creating'}
-              joining={phase === 'joining'}
-            />
+            <MotionDiv
+              key="lobby"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={pageTransition}
+              className="flex min-h-dvh flex-col justify-center py-12"
+            >
+              <header className="mb-10 text-center">
+                <h1 className="font-[family-name:var(--font-card-display)] text-4xl tracking-tight text-white sm:text-5xl">
+                  Food Tinder
+                </h1>
+                <p className="font-[family-name:var(--font-card-meta)] mt-3 text-base text-slate-400">
+                  Swipe on restaurants together. Match on where to eat.
+                </p>
+              </header>
+
+              {allErrors.length > 0 && (
+                <div className="mb-6 space-y-2">
+                  {allErrors.map((msg, i) => (
+                    <div
+                      key={i}
+                      className="rounded-xl bg-red-950/50 px-4 py-3 text-sm text-red-200"
+                      role="alert"
+                    >
+                      {msg}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <SetupScreen
+                hostName={hostName}
+                onHostNameChange={setHostName}
+                city={city}
+                onCityChange={setCity}
+                cuisine={cuisine}
+                onCuisineChange={setCuisine}
+                joinCode={joinCode}
+                onJoinCodeChange={setJoinCode}
+                guestName={guestName}
+                onGuestNameChange={setGuestName}
+                onCreate={handleCreate}
+                onJoin={handleJoin}
+                creating={phase === 'creating'}
+                joining={phase === 'joining'}
+              />
+            </MotionDiv>
           )}
-        </MotionDiv>
+
+          {phase === 'waiting_host' && session && (
+            <MotionDiv
+              key="waiting"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={pageTransition}
+              className="flex min-h-dvh flex-col items-center justify-center py-12"
+            >
+              {allErrors.length > 0 && (
+                <div className="mb-6 w-full max-w-md space-y-2">
+                  {allErrors.map((msg, i) => (
+                    <div key={i} className="rounded-xl bg-red-950/50 px-4 py-3 text-sm text-red-200" role="alert">
+                      {msg}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <WaitingRoom session={session} onLeave={leaveSession} />
+            </MotionDiv>
+          )}
+
+          {phase === 'active' && session && (
+            <MotionDiv
+              key="active"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={pageTransition}
+              className="flex min-h-dvh flex-col py-6"
+            >
+              {allErrors.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {allErrors.map((msg, i) => (
+                    <div key={i} className="rounded-xl bg-red-950/50 px-4 py-3 text-sm text-red-200" role="alert">
+                      {msg}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <SwipeSessionPanel
+                session={session}
+                userSlot={userSlot}
+                deck={deck}
+                votes={votes}
+                deckLoading={deckLoading}
+                votesLoading={votesLoading}
+                onLeave={leaveSession}
+                onSwipe={async (vote, item) => {
+                  await castVote(item.id, vote)
+                }}
+              />
+            </MotionDiv>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   )
